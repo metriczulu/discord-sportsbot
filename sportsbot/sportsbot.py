@@ -10,22 +10,25 @@ class Requests(commands.Cog):
     @commands.command(name="schedule")
     async def schedule(self, message, *args):
         if len(args) > 0:
-            await message.channel.send(team_schedule(" ".join(args)))
+            schedule = team_schedule(" ".join(args))
+            for chunk in split_cprint(schedule):
+                await message.channel.send(chunk)
         else:
             await message.channel.send("**You idjot, plz include a team to query.")
     
     @commands.command(name="leaderboard")
     async def leaderboard(self, ctx, *args):
+        max_chunk_size = 1850
         teams = " ".join(args).split("/")
         if (len(teams) > 0) and (teams[0] != ''):
-            leaderboard = gen_leaderboard(name_map=nfl_map, teams=teams)
+            result = cprint_df(gen_leaderboard(name_map=nfl_map, teams=teams))
         else:
-            leaderboard = gen_leaderboard(name_map=nfl_map, teams=nfl_map.keys())
-        if type(leaderboard) == str:
-            await ctx.send(leaderboard)
+            result = cprint_df(gen_leaderboard(name_map=nfl_map, teams=nfl_map.keys()))
+
+        if len(result) < max_chunk_size:
+            await ctx.send(result)
         else:
-            leaderboard = cprint_df(leaderboard)
-            for chunk in split_cprint(leaderboard):
+            for chunk in split_cprint(result, max_chunk_size):
                 await ctx.send(chunk)
 
 

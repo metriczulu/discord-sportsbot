@@ -131,7 +131,7 @@ def wrap(s):
         s += '```'
     return s
 
-def split_cprint(s, max_length=1950):
+def split_cprint(s, max_length=1900):
     rows = s.split("\n")
     next_break = find_next_break(rows, max_length)
     if next_break == len(rows):
