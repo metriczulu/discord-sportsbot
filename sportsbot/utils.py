@@ -83,6 +83,24 @@ return_team = lambda team_name, name_map=nfl_map: team_search(team_code(team_nam
 # simple function to replace Nones in list with 'Future game'
 remove_none_games = lambda s: s if s is not None else 'Future game'
 
+none_remove = lambda s: "---" if 'None' in s else s
+
+date_split = lambda s: "/".join(s.split("-")[1:])
+abbrs_changed = {'OTI': 'TEN', 'CLT': 'IND', 'CRD': 'ARI', 'RAM': 'LAR', 'SDG': 'LAC', 'HTX': 'HOU', 'NWE': 'NE', 'RAV': 'BAL', 'TAM': 'TB', 'RAI': 'LV'}
+abbr_fix = lambda team: abbrs_changed[team] if team in abbrs_changed else team
+
+def full_name(team, name_map=nfl_map):
+    for t in nfl_map.keys():
+        if team.lower() in t.lower():
+            return t
+    return team
+
+def score_show(ours, theirs, loc):
+    if loc == "Home":
+        return f"{theirs}-{ours}"
+    else:
+        return f"{ours}-{theirs}"
+
 def team_schedule(team_name, name_map=nfl_map):
     '''
     Returns formatted table showing a team's yearly schedule and wins/losses
@@ -91,11 +109,20 @@ def team_schedule(team_name, name_map=nfl_map):
     ::name_map Dict:: Dictionary mapping to lookup codes
     '''
     try:
-        schedule = team_search(team_code(team_name, name_map)).schedule.dataframe[['date', 'location', 'opponent_name', 'result']]
-        schedule = schedule.rename(columns={'date': 'Date', 'location': 'Location', 'opponent_name': 'Opponent', 'result': 'Result'})
+        schedule = team_search(team_code(team_name, name_map)).schedule.dataframe[['datetime', 'opponent_abbr', 'points_allowed', 'points_scored', 'result', 'location']]
+        schedule = schedule.rename(columns={'datetime': 'Date', 'opponent_abbr': 'Vs.', 'result': 'Result'}).applymap(str)
+        schedule['Score'] = schedule.apply(lambda df: score_show(df.points_scored, df.points_allowed, df.location), axis=1)
+        schedule = schedule.drop(schedule[['points_scored', 'points_allowed']], axis=1)
+        schedule['Result'] = schedule['Result'].map(none_remove).map(lambda s: s[0])
+        schedule['Score'] = schedule['Score'].map(none_remove)
+        schedule['Vs.'] = schedule['Vs.'].map(abbr_fix)
+        schedule['Result'] = schedule[['Result', 'Score']].agg(' '.join, axis=1)
+        schedule = schedule.drop(schedule[['Score', 'location']], axis=1)
+        Date = schedule['Date'].str.split(" ", 1, True)
+        schedule['Date'] = Date[0].map(date_split)
     except (AttributeError, HTTPError) as error:
         return "**Not a valid team**"
-    return cprint_df(schedule)
+    return schedule
 
 def gen_leaderboard(name_map=nfl_map, teams=[]):
     team_finder = Teams()
@@ -106,8 +133,11 @@ def gen_leaderboard(name_map=nfl_map, teams=[]):
             return "**Contains an incorrect team name dummy**"
     else:
         teams = team_finder
-    teams = [team.dataframe[['name', 'rank', 'wins', 'losses', 'win_percentage', 'games_played']] for team in teams]
-    leaderboard = pd.concat(teams).rename(columns={'name': 'Team', 'rank': 'Rank', 'wins': 'Wins', 'losses': 'Losses', 'win_percentage': 'Win Pct', 'games_played': 'Games'})
+    teams = [team.dataframe[['abbreviation', 'rank', 'wins', 'losses']] for team in teams]
+    leaderboard = pd.concat(teams).rename(columns={'abbreviation': 'Team', 'rank': 'Rank', 'wins': 'Wins', 'losses': 'Losses'}).applymap(str)
+    leaderboard['Record'] = leaderboard[['Wins', 'Losses']].agg('-'.join, axis=1)
+    leaderboard = leaderboard.drop(leaderboard[['Wins', 'Losses']], axis=1)
+    leaderboard['Team'] = leaderboard['Team'].map(abbr_fix)
     return leaderboard
 
 def split_df(df, row_limit=15):
