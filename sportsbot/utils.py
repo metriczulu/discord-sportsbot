@@ -1,6 +1,8 @@
 from sportsreference.nfl.teams import Teams
 import pandas as pd
 from urllib.error import HTTPError
+from requests import get
+from io import StringIO
 
 # read TheBaller Discord token
 def load_token(token_file='./token'):
@@ -124,8 +126,23 @@ def team_schedule(team_name, name_map=nfl_map):
         return "**Not a valid team**"
     return schedule
 
+def pull_elo(url="https://projects.fivethirtyeight.com/nfl-api/nfl_elo_latest.csv"):
+    df = pd.read_csv(StringIO(get(url).content.decode('utf-8')))
+    df_first = df[['date', 'team1', 'elo1_pre', 'playoff']].rename(columns={'team1': 'team', 'elo1_pre': 'Elo', 'playoff': 'Round'})
+    df_second = df[['date', 'team2', 'elo2_pre', 'playoff']].rename(columns={'team2': 'team', 'elo2_pre': 'Elo', 'playoff': 'Round'})
+    df = pd.concat([df_first, df_second])
+    df['Round'] = df['Round'].fillna("R").map(lambda s: s.upper())
+    df = df.sort_values(by=['date'], ascending=False).dropna(subset=['Elo'])
+    df = df.groupby(['team']).first().sort_values(by=['Elo'], ascending=False).drop(df[['date']], axis=1)
+    df['teams'] = df.index.astype(str)
+    df['teams'] = df['teams'].map(lambda t: {'NO': 'NOR', 'GB': 'GNB', 'KC': 'KAN', 'OAK': 'LV', 'SF': 'SFO', 'WSH': 'WAS'}.get(t, t))
+    df = df[['teams', 'Elo', 'Round']]
+    df['Elo'] = df['Elo'].astype(int)
+    return df
+
 def gen_leaderboard(name_map=nfl_map, teams=[]):
     team_finder = Teams()
+    elo = pull_elo()
     if len(teams) > 0:
         try:
             teams = [team_finder(team_code(team, name_map)) for team in teams]
@@ -133,11 +150,14 @@ def gen_leaderboard(name_map=nfl_map, teams=[]):
             return "**Contains an incorrect team name dummy**"
     else:
         teams = team_finder
-    teams = [team.dataframe[['abbreviation', 'rank', 'wins', 'losses']] for team in teams]
-    leaderboard = pd.concat(teams).rename(columns={'abbreviation': 'Team', 'rank': 'Rank', 'wins': 'Wins', 'losses': 'Losses'}).applymap(str)
+    teams = [team.dataframe[['abbreviation', 'wins', 'losses']] for team in teams]
+    leaderboard = pd.concat(teams).rename(columns={'abbreviation': 'Team', 'wins': 'Wins', 'losses': 'Losses'}).applymap(str)
     leaderboard['Record'] = leaderboard[['Wins', 'Losses']].agg('-'.join, axis=1)
     leaderboard = leaderboard.drop(leaderboard[['Wins', 'Losses']], axis=1)
     leaderboard['Team'] = leaderboard['Team'].map(abbr_fix)
+    leaderboard = leaderboard.merge(elo, left_on="Team", right_on="teams")
+    leaderboard = leaderboard.sort_values(by=['Elo'], ascending=False)
+    leaderboard = leaderboard[['Team', 'Elo', 'Record', 'Round']]
     return leaderboard
 
 def split_df(df, row_limit=15):
